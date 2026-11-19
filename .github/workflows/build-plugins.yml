@@ -1,0 +1,64 @@
+
+name: Build Minecraft Plugins
+
+on:
+  push:
+    paths:
+      - 'EasyItem*.zip'
+      - 'RankForge-full-language*.zip'
+      - '.github/workflows/build-plugins.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract plugin source ZIPs
+        shell: bash
+        run: |
+          set -euo pipefail
+          easyitem_zip=$(find . -maxdepth 1 -type f -name 'EasyItem*.zip' -print -quit)
+          rankforge_zip=$(find . -maxdepth 1 -type f -name 'RankForge-full-language*.zip' -print -quit)
+
+          test -n "$easyitem_zip" || { echo 'EasyItem ZIP not found'; exit 1; }
+          test -n "$rankforge_zip" || { echo 'RankForge ZIP not found'; exit 1; }
+
+          mkdir -p sources
+          unzip -o "$easyitem_zip" -d sources
+          unzip -o "$rankforge_zip" -d sources
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build both plugins
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' poms < <(find sources -name pom.xml -print0)
+
+          test "${#poms[@]}" -eq 2 || {
+            echo "Expected 2 Maven projects, found ${#poms[@}"
+            exit 1
+          }
+
+          for pom in "${poms[@]}"; do
+            project_dir=$(dirname "$pom")
+            echo "Building $project_dir"
+            (cd "$project_dir" && mvn --batch-mode clean package)
+          done
+
+      - name: Upload compiled plugin JARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minecraft-Plugin-JARs
+          path: sources/**/target/*.jar
+          if-no-files-found: error
+          
